@@ -1,0 +1,572 @@
+const fs = require('fs');
+const path = require('path');
+const { v4: uuidv4 } = require('uuid');
+const moment = require('moment');
+const logger = require('./utils/logger');
+const LanguageNormalizer = require('./utils/LanguageNormalizer');
+
+/**
+ * DataManager - Sistema de Gerenciamento de Dados para Fazenda Web
+ * 
+ * Este sistema é completamente independente da aplicação desktop.
+ * Todos os dados são armazenados em arquivos JSON em português.
+ * 
+ * Estrutura de dados:
+ * - inventario.json: Gestão de itens e transações
+ * - usuarios.json: Gestão de usuários e funções  
+ * - precos.json: Gestão de preços e categorias
+ */
+class DataManager {
+    constructor(dataPath = './data', io = null) {
+        this.dataPath = dataPath;
+        // Arquivos de dados em português - sistema independente
+        this.inventarioFile = path.join(dataPath, 'inventario.json');
+        this.usuariosFile = path.join(dataPath, 'usuarios.json');
+        this.precosFile = path.join(dataPath, 'precos.json');
+        this.io = io;
+        
+        // Normalizador de idiomas para tradução automática
+        this.languageNormalizer = new LanguageNormalizer();
+        
+        this.criarDiretoriosDados();
+        this.carregarDadosIniciais();
+    }
+    
+    
+    /**
+     * Cria diretórios de dados se não existirem
+     */
+    criarDiretoriosDados() {
+        if (!fs.existsSync(this.dataPath)) {
+            fs.mkdirSync(this.dataPath, { recursive: true });
+            logger.info('Diretório de dados criado: ' + this.dataPath);
+        }
+    }
+    
+    /**
+     * Carrega dados iniciais dos arquivos JSON
+     * Sistema completamente independente da aplicação desktop
+     */
+    carregarDadosIniciais() {
+        // Carregar inventário com estrutura em português
+        this.inventario = this.carregarArquivoJson(this.inventarioFile, {
+            itens: {},
+            historico_transacoes: [],
+            ultima_atualizacao: new Date().toISOString()
+        });
+        
+        // Carregar usuários com estrutura em português
+        this.usuarios = this.carregarArquivoJson(this.usuariosFile, {
+            usuarios: {},
+            funcoes: {
+                gerente: [],
+                trabalhador: []
+            }
+        });
+        
+        // Carregar preços com estrutura em português
+        this.precos = this.carregarArquivoJson(this.precosFile, {
+            itens: {},
+            categorias: {
+                "ANIMAIS": "Animais",
+                "SEMENTES": "Sementes", 
+                "PLANTAS": "Plantas",
+                "MINERIOS": "Minérios",
+                "ALIMENTACAO": "Alimentação",
+                "FERRAMENTAS": "Ferramentas",
+                "MATERIAIS": "Materiais",
+                "OUTROS": "Outros"
+            }
+        });
+    }
+    
+    /**
+     * Carrega arquivo JSON ou cria com dados padrão
+     * @param {string} caminhoArquivo - Caminho do arquivo
+     * @param {object} dadosPadrao - Dados padrão se arquivo não existe
+     * @returns {object} Dados carregados
+     */
+    carregarArquivoJson(caminhoArquivo, dadosPadrao = {}) {
+        try {
+            if (fs.existsSync(caminhoArquivo)) {
+                const dados = JSON.parse(fs.readFileSync(caminhoArquivo, 'utf8'));
+                logger.info(`Arquivo carregado: ${path.basename(caminhoArquivo)}`);
+                return dados;
+            } else {
+                fs.writeFileSync(caminhoArquivo, JSON.stringify(dadosPadrao, null, 2));
+                logger.info(`Arquivo criado com dados padrão: ${path.basename(caminhoArquivo)}`);
+                return dadosPadrao;
+            }
+        } catch (error) {
+            logger.error(`Erro ao carregar arquivo ${caminhoArquivo}:`, error);
+            return dadosPadrao;
+        }
+    }
+    
+    /**
+     * Salva dados no arquivo JSON
+     * @param {string} caminhoArquivo - Caminho do arquivo
+     * @param {object} dados - Dados para salvar
+     * @returns {boolean} Sucesso da operação
+     */
+    salvarArquivoJson(caminhoArquivo, dados) {
+        try {
+            fs.writeFileSync(caminhoArquivo, JSON.stringify(dados, null, 2));
+            logger.info(`Arquivo salvo: ${path.basename(caminhoArquivo)}`);
+            return true;
+        } catch (error) {
+            logger.error(`Erro ao salvar arquivo ${caminhoArquivo}:`, error);
+            return false;
+        }
+    }
+    
+    // Get all data
+    getAllData() {
+        return this.inventory;
+    }
+
+    // Get display names for items
+    getDisplayNames() {
+        return this.customNames;
+    }
+
+    // Update custom display name for an item
+    updateDisplayName(canonicalId, displayName) {
+        try {
+            this.customNames[canonicalId] = displayName;
+            const success = this.saveJsonFile(this.customNamesFile, this.customNames);
+            
+            if (success) {
+                logger.info(`Updated display name for ${canonicalId}: ${displayName}`);
+            }
+            
+            return success;
+        } catch (error) {
+            logger.error('Error updating display name:', error);
+            return false;
+        }
+    }
+
+    // Get display name for an item
+    getItemDisplayName(itemId) {
+        // First, convert any historical English names to Portuguese canonical ID
+        const canonicalId = this.getCanonicalId(itemId);
+        
+        // Then get the display name (custom name or generated Portuguese name)
+        return this.languageNormalizer.getDisplayName(canonicalId, this.customNames);
+    }
+
+    // Get canonical ID from any item name variant with accent-insensitive matching
+    getCanonicalId(itemName) {
+        // First try the language normalizer
+        const normalized = this.languageNormalizer.discordToCanonical(itemName);
+        
+        // If no change, try to find accent-insensitive match in existing inventory
+        if (normalized === itemName && this.inventory && this.inventory.inventory) {
+            const match = this.languageNormalizer.findAccentInsensitiveMatch(itemName, this.inventory.inventory);
+            if (match) {
+                return match;
+            }
+        }
+        
+        return normalized;
+    }
+
+    // Find existing inventory item with accent-insensitive matching
+    findInventoryItem(itemName) {
+        if (!this.inventory || !this.inventory.inventory) {
+            return null;
+        }
+        
+        // Try exact match first
+        if (this.inventory.inventory[itemName]) {
+            return { key: itemName, data: this.inventory.inventory[itemName] };
+        }
+        
+        // Try accent-insensitive match
+        const match = this.languageNormalizer.findAccentInsensitiveMatch(itemName, this.inventory.inventory);
+        if (match) {
+            return { key: match, data: this.inventory.inventory[match] };
+        }
+        
+        return null;
+    }
+
+    // Inventory Management
+    getInventory() {
+        return {
+            items: this.inventory.inventory || {},
+            lastUpdated: this.inventory.last_updated,
+            totalItems: Object.keys(this.inventory.inventory || {}).length,
+            totalQuantity: Object.values(this.inventory.inventory || {}).reduce((sum, item) => sum + (item.quantity || 0), 0)
+        };
+    }
+    
+    addItem(itemName, quantity, author = 'System', source = 'manual') {
+        try {
+            // AUTO-CREATE USER if from Discord webhook and author doesn't exist
+            if (source === 'webhook' && author !== 'System') {
+                this.ensureUserExists(author);
+            }
+            
+            // Use enhanced canonical ID resolution with accent-insensitive matching
+            const canonicalId = this.getCanonicalId(itemName);
+            
+            // Find existing item or use canonical ID
+            const existingItem = this.findInventoryItem(canonicalId);
+            const actualKey = existingItem ? existingItem.key : canonicalId;
+            
+            // Update inventory using the actual key (handles accent variations)
+            if (!this.inventory.inventory[actualKey]) {
+                this.inventory.inventory[actualKey] = {
+                    quantity: 0,
+                    first_added: new Date().toISOString(),
+                    last_updated: new Date().toISOString()
+                };
+            }
+            
+            this.inventory.inventory[actualKey].quantity += quantity;
+            this.inventory.inventory[actualKey].last_updated = new Date().toISOString();
+            
+            // Add transaction log using actual key
+            const transaction = {
+                id: uuidv4(),
+                action: 'deposit',
+                item: actualKey,
+                original_name: itemName, // Keep original for reference
+                canonical_id: canonicalId, // Keep canonical for reference
+                quantity: quantity,
+                author: author,
+                source: source,
+                timestamp: new Date().toISOString(),
+                date: moment().format('DD/MM/YYYY - HH:mm:ss')
+            };
+            
+            this.inventory.transaction_log.push(transaction);
+            this.inventory.last_updated = new Date().toISOString();
+            
+            // Save to file
+            const success = this.saveJsonFile(this.inventoryFile, this.inventory);
+            
+            if (success) {
+                logger.info(`Added ${quantity} ${canonicalId} (${itemName}) by ${author}`);
+            }
+            
+            return success;
+        } catch (error) {
+            logger.error('Error adding item:', error);
+            return false;
+        }
+    }
+    
+    removeItem(itemName, quantity, author = 'System', source = 'manual') {
+        try {
+            // AUTO-CREATE USER if from Discord webhook and author doesn't exist
+            if (source === 'webhook' && author !== 'System') {
+                this.ensureUserExists(author);
+            }
+            
+            // Use enhanced canonical ID resolution with accent-insensitive matching
+            const canonicalId = this.getCanonicalId(itemName);
+            
+            // Find existing item with accent-insensitive matching
+            const existingItem = this.findInventoryItem(canonicalId);
+            if (!existingItem) {
+                logger.warn(`Item ${canonicalId} (${itemName}) not found in inventory`);
+                return false;
+            }
+            
+            const actualKey = existingItem.key;
+            const itemData = existingItem.data;
+            
+            // Check if enough quantity available
+            if (itemData.quantity < quantity) {
+                logger.warn(`Insufficient quantity of ${actualKey}. Available: ${itemData.quantity}, Requested: ${quantity}`);
+                return false;
+            }
+            
+            // Update inventory using actual key
+            this.inventory.inventory[actualKey].quantity -= quantity;
+            this.inventory.inventory[actualKey].last_updated = new Date().toISOString();
+            
+            // Remove item if quantity reaches 0
+            if (this.inventory.inventory[actualKey].quantity <= 0) {
+                delete this.inventory.inventory[actualKey];
+            }
+            
+            // Add transaction log using actual key
+            const transaction = {
+                id: uuidv4(),
+                action: 'remove',
+                item: actualKey,
+                original_name: itemName, // Keep original for reference
+                canonical_id: canonicalId, // Keep canonical for reference
+                quantity: quantity,
+                author: author,
+                source: source,
+                timestamp: new Date().toISOString(),
+                date: moment().format('DD/MM/YYYY - HH:mm:ss')
+            };
+            
+            this.inventory.transaction_log.push(transaction);
+            this.inventory.last_updated = new Date().toISOString();
+            
+            // Save to file
+            const success = this.saveJsonFile(this.inventoryFile, this.inventory);
+            
+            if (success) {
+                logger.info(`Removed ${quantity} ${canonicalId} (${itemName}) by ${author}`);
+            }
+            
+            return success;
+        } catch (error) {
+            logger.error('Error removing item:', error);
+            return false;
+        }
+    }
+    
+    // Balance Management
+    recordBalanceTransaction(action, amount, balanceAfter, author = 'System', description = '', date = null, source = 'manual') {
+        try {
+            // AUTO-CREATE USER if from Discord webhook and author doesn't exist
+            if (source === 'webhook' && author !== 'System') {
+                this.ensureUserExists(author);
+            }
+            
+            const transaction = {
+                id: uuidv4(),
+                action: action,
+                amount: amount,
+                balance_after: balanceAfter,
+                author: author,
+                description: description,
+                timestamp: new Date().toISOString(),
+                date: date || moment().format('DD/MM/YYYY - HH:mm:ss')
+            };
+            
+            this.inventory.balance_log.push(transaction);
+            this.inventory.last_updated = new Date().toISOString();
+            
+            const success = this.saveJsonFile(this.inventoryFile, this.inventory);
+            
+            if (success) {
+                logger.info(`Balance transaction: ${action} $${amount} by ${author}`);
+            }
+            
+            return success;
+        } catch (error) {
+            logger.error('Error recording balance transaction:', error);
+            return false;
+        }
+    }
+    
+    getBalanceInfo() {
+        try {
+            const balanceLog = this.inventory.balance_log || [];
+            const currentBalance = balanceLog.length > 0 ? 
+                balanceLog[balanceLog.length - 1].balance_after : 0;
+            
+            const totalDeposits = balanceLog
+                .filter(t => t.action === 'balance_deposit')
+                .reduce((sum, t) => sum + t.amount, 0);
+                
+            const totalWithdrawals = balanceLog
+                .filter(t => t.action === 'balance_withdrawal')
+                .reduce((sum, t) => sum + t.amount, 0);
+            
+            return {
+                current_balance: currentBalance,
+                total_deposits: totalDeposits,
+                total_withdrawals: totalWithdrawals,
+                transaction_count: balanceLog.length
+            };
+        } catch (error) {
+            logger.error('Error getting balance info:', error);
+            return {
+                current_balance: 0,
+                total_deposits: 0,
+                total_withdrawals: 0,
+                transaction_count: 0
+            };
+        }
+    }
+
+    addBalanceEntry(action, amount, author, description = '') {
+        try {
+            if (!this.inventory.balance_log) {
+                this.inventory.balance_log = [];
+            }
+
+            const currentBalance = this.inventory.current_balance || 0;
+            let newBalance;
+
+            if (action === 'deposit' || action === 'balance_deposit') {
+                newBalance = currentBalance + amount;
+            } else if (action === 'withdrawal' || action === 'balance_withdrawal') {
+                if (currentBalance < amount) {
+                    logger.error(`Insufficient balance. Current: ${currentBalance}, Requested: ${amount}`);
+                    return false;
+                }
+                newBalance = currentBalance - amount;
+            } else {
+                logger.error(`Invalid balance action: ${action}`);
+                return false;
+            }
+
+            const balanceEntry = {
+                id: uuidv4(),
+                action: action,
+                amount: parseFloat(amount),
+                balance_after: newBalance,
+                author: author,
+                description: description,
+                timestamp: new Date().toISOString(),
+                date: moment().format('DD/MM/YYYY - HH:mm:ss')
+            };
+
+            this.inventory.balance_log.push(balanceEntry);
+            this.inventory.current_balance = newBalance;
+            this.inventory.last_updated = new Date().toISOString();
+
+            const saved = this.saveJsonFile(this.inventoryFile, this.inventory);
+            if (saved) {
+                logger.info(`Balance ${action}: $${amount} by ${author}. New balance: $${newBalance}`);
+                return true;
+            }
+            return false;
+        } catch (error) {
+            logger.error('Error adding balance entry:', error);
+            return false;
+        }
+    }
+    
+    // User Management
+    getUserEarnings() {
+        try {
+            const transactions = this.inventory.transaction_log || [];
+            const userEarnings = {};
+            
+            transactions.forEach(transaction => {
+                const author = transaction.author || 'Unknown';
+                if (!userEarnings[author]) {
+                    userEarnings[author] = {
+                        deposits: 0,
+                        removals: 0,
+                        transactions: 0,
+                        lastActivity: transaction.timestamp
+                    };
+                }
+                
+                if (transaction.action === 'deposit') {
+                    userEarnings[author].deposits += transaction.quantity;
+                } else if (transaction.action === 'remove') {
+                    userEarnings[author].removals += transaction.quantity;
+                }
+                
+                userEarnings[author].transactions++;
+                userEarnings[author].lastActivity = transaction.timestamp;
+            });
+            
+            return userEarnings;
+        } catch (error) {
+            logger.error('Error getting user earnings:', error);
+            return {};
+        }
+    }
+
+    getAllUsersData() {
+        try {
+            // Return the complete user data from users file
+            return this.users.users || {};
+        } catch (error) {
+            logger.error('Error getting all users data:', error);
+            return {};
+        }
+    }
+
+    // Save inventory data to file
+    saveInventoryData() {
+        try {
+            return this.saveJsonFile(this.inventoryFile, this.inventory);
+        } catch (error) {
+            logger.error('Error saving inventory data:', error);
+            return false;
+        }
+    }
+
+    
+    // Transaction History
+    getTransactionHistory(limit = 100, offset = 0) {
+        try {
+            const transactions = [...(this.inventory.transaction_log || [])];
+            transactions.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+            
+            return {
+                transactions: transactions.slice(offset, offset + limit),
+                total: transactions.length,
+                hasMore: offset + limit < transactions.length
+            };
+        } catch (error) {
+            logger.error('Error getting transaction history:', error);
+            return { transactions: [], total: 0, hasMore: false };
+        }
+    }
+    
+    // Analytics
+    getAnalytics() {
+        try {
+            const transactions = this.inventory.transaction_log || [];
+            const balanceLog = this.inventory.balance_log || [];
+            const inventory = this.inventory.items || {};
+            
+            const today = moment().startOf('day');
+            const todayTransactions = transactions.filter(t => 
+                moment(t.timestamp).isSame(today, 'day')
+            );
+            
+            return {
+                inventory: {
+                    totalItems: Object.keys(inventory).length,
+                    totalQuantity: Object.values(inventory).reduce((sum, item) => sum + item.quantity, 0),
+                    lastUpdated: this.inventory.last_updated
+                },
+                transactions: {
+                    total: transactions.length,
+                    today: todayTransactions.length,
+                    lastHour: transactions.filter(t => 
+                        moment(t.timestamp).isAfter(moment().subtract(1, 'hour'))
+                    ).length
+                },
+                balance: this.getBalanceInfo(),
+                users: Object.keys(this.getUserEarnings()).length
+            };
+        } catch (error) {
+            logger.error('Error getting analytics:', error);
+            return {};
+        }
+    }
+    
+    setupFileWatching() {
+        logger.info('FILE WATCHING DISABLED - Payment system requires manual data management');
+        // DISABLED: File watching was causing payment records to be lost
+        // The file watching system reloads data from disk, overwriting in-memory payment records
+        // Payment records are now saved immediately to disk and managed manually
+        return;
+    }
+    
+    emitRealTimeUpdates() {
+        if (!this.io) return;
+        
+        try {
+            this.io.emit('inventory:update', this.getInventory());
+            this.io.emit('users:update', this.getAllUsersData());
+            this.io.emit('balance:update', this.getBalanceInfo());
+            this.io.emit('analytics:update', this.getAnalytics());
+            logger.info('Real-time updates emitted via file watching');
+        } catch (error) {
+            logger.error('Error emitting real-time updates:', error);
+        }
+    }
+}
+
+module.exports = DataManager;

@@ -1,0 +1,22 @@
+{
+  "watchedChannels": [
+    {
+      "id": "1412325130926948362",
+      "name": "Channel 8362",
+      "addedAt": "2025-09-02T13:14:19.778Z"
+    }
+  ],
+  "commands": [
+    {
+      "name": "ping",
+      "description": "Check bot latency",
+      "enabled": true
+    },
+    {
+      "name": "inventory",
+      "description": "Manage farm inventory",
+      "enabled": true
+    }
+  ],
+  "lastUpdated": "2025-09-02T13:14:29.034Z"
+}

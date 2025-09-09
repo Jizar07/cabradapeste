@@ -1,0 +1,26 @@
+{
+  "token": "{{DISCORD_TOKEN}}",
+  "clientId": "{{CLIENT_ID}}",
+  "guildId": "{{GUILD_ID}}",
+  "prefix": "{{BOT_PREFIX}}",
+  "webServerPort": {{WEB_SERVER_PORT}},
+  "database": {
+    "path": "./data"
+  },
+  "channels": {
+    "logs": "{{LOGS_CHANNEL_ID}}",
+    "welcome": "{{WELCOME_CHANNEL_ID}}",
+    "commands": "{{COMMANDS_CHANNEL_ID}}"
+  },
+  "roles": {
+    "admin": "{{ADMIN_ROLE_ID}}",
+    "moderator": "{{MODERATOR_ROLE_ID}}",
+    "member": "{{MEMBER_ROLE_ID}}"
+  },
+  "features": {
+    "welcomeMessages": {{ENABLE_WELCOME_MESSAGES}},
+    "autoModeration": {{ENABLE_AUTO_MODERATION}},
+    "loggingEnabled": {{ENABLE_LOGGING}},
+    "webDashboard": {{WEB_DASHBOARD_ENABLED}}
+  }
+}

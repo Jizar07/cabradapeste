@@ -1,0 +1,42 @@
+{
+  "name": "cabra-da-peste-bot",
+  "version": "1.0.0",
+  "description": "Cabra da Peste Discord Bot",
+  "main": "bot.js",
+  "scripts": {
+    "start": "pm2 start ecosystem.config.js",
+    "stop": "pm2 stop all",
+    "restart": "pm2 restart all",
+    "reload": "pm2 reload all",
+    "logs": "pm2 logs",
+    "logs:bot": "pm2 logs cabra-bot",
+    "logs:web": "pm2 logs cabra-web",
+    "status": "pm2 status",
+    "dev": "nodemon bot.js",
+    "dev:bot": "nodemon bot.js",
+    "dev:web": "nodemon server.js",
+    "bot": "node bot.js",
+    "web": "node server.js",
+    "build": "cd client && npm run build",
+    "install-client": "cd client && npm install",
+    "pm2:save": "pm2 save",
+    "pm2:startup": "pm2 startup"
+  },
+  "dependencies": {
+    "axios": "^1.11.0",
+    "cors": "^2.8.5",
+    "express": "^4.18.2",
+    "fs-extra": "^11.3.1",
+    "google-auth-library": "^10.2.1",
+    "googleapis": "^155.0.1",
+    "moment": "^2.30.1",
+    "socket.io": "^4.7.2",
+    "uuid": "^11.1.0",
+    "winston": "^3.17.0",
+    "discord.js": "^14.16.3",
+    "pm2": "^6.0.8"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.10"
+  }
+}
