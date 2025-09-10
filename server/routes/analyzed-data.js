@@ -4,7 +4,7 @@ const DataAnalyzer = require('../DataAnalyzer');
 const path = require('path');
 
 module.exports = (dataManager) => {
-    const dataAnalyzer = new DataAnalyzer(path.join(__dirname, '../../data'));
+    const dataAnalyzer = new DataAnalyzer(path.join(__dirname, '../../data'), dataManager);
 
     /**
      * GET /api/analyzed-data - Get analyzed farm data

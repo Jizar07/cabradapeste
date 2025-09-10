@@ -175,7 +175,7 @@ module.exports = (dataManager) => {
       // Add display names to transactions
       const enrichedTransactions = filteredTransactions.map(transaction => ({
         ...transaction,
-        displayName: dataManager.getItemDisplayName(transaction.item),
+        displayName: dataManager.obterMelhorNomeExibicao(transaction.item),
         canonicalId: transaction.item
       }));
 
@@ -349,9 +349,10 @@ module.exports = (dataManager) => {
 
       // Update display name if provided
       if (displayName !== undefined && success) {
-        const nameSuccess = dataManager.updateDisplayName(itemId, displayName);
+        const oldName = dataManager.obterMelhorNomeExibicao(itemId);
+        const nameSuccess = dataManager.definirNomeCustomizado(itemId, displayName);
         if (nameSuccess) {
-          results.displayName = { old: dataManager.getItemDisplayName(itemId), new: displayName };
+          results.displayName = { old: oldName, new: displayName };
         } else {
           success = false;
         }
@@ -362,7 +363,7 @@ module.exports = (dataManager) => {
         if (dataManager.io) {
           dataManager.io.emit('inventory:update', dataManager.getInventory());
           if (displayName !== undefined) {
-            dataManager.io.emit('custom-names:update', dataManager.getDisplayNames());
+            dataManager.io.emit('custom-names:update', dataManager.displayNames);
           }
         }
         
@@ -399,7 +400,7 @@ module.exports = (dataManager) => {
       
       if (success && displayName) {
         // Add display name if provided
-        dataManager.updateDisplayName(itemId, displayName);
+        dataManager.definirNomeCustomizado(itemId, displayName);
       }
 
       if (success) {
@@ -407,7 +408,7 @@ module.exports = (dataManager) => {
         if (dataManager.io) {
           dataManager.io.emit('inventory:update', dataManager.getInventory());
           if (displayName) {
-            dataManager.io.emit('custom-names:update', dataManager.getDisplayNames());
+            dataManager.io.emit('custom-names:update', dataManager.displayNames);
           }
         }
         
@@ -443,7 +444,7 @@ module.exports = (dataManager) => {
       if (q) {
         const searchLower = q.toLowerCase();
         items = items.filter(([itemId]) => {
-          const displayName = dataManager.getItemDisplayName(itemId).toLowerCase();
+          const displayName = dataManager.obterMelhorNomeExibicao(itemId).toLowerCase();
           const itemName = itemId.toLowerCase();
           return displayName.includes(searchLower) || itemName.includes(searchLower);
         });
@@ -461,7 +462,7 @@ module.exports = (dataManager) => {
       // Transform to response format
       const results = items.map(([itemId, itemData]) => ({
         itemId,
-        displayName: dataManager.getItemDisplayName(itemId),
+        displayName: dataManager.obterMelhorNomeExibicao(itemId),
         quantity: itemData.quantity,
         lastUpdated: itemData.last_updated,
         firstAdded: itemData.first_added

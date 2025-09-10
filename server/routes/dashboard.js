@@ -1,7 +1,9 @@
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
-const router = express.Router();
+
+module.exports = (dataManager) => {
+    const router = express.Router();
 
 // Get dashboard statistics
 router.get('/estatisticas', (req, res) => {
@@ -124,13 +126,16 @@ router.get('/atividades', (req, res) => {
             // Transform only the limited activities - they're already parsed!
             const paginatedAtividades = limitedActivities.map(activity => {
                 // Activities are already properly parsed by DataManager's FarmMessageParser
+                const rawItem = activity.details?.item || 'N/A';
+                const displayName = rawItem !== 'N/A' ? dataManager.obterMelhorNomeExibicao(rawItem) : 'N/A';
+                
                 return {
                     ...activity,
                     // Ensure we have the standard fields expected by frontend
                     autor: activity.author,
                     acao: activity.details?.action || activity.type,
                     quantidade: activity.details?.quantity || 0,
-                    item: activity.details?.item || 'N/A',
+                    item: displayName,
                     descricao: activity.content,
                     tipo: activity.type,
                     // Map category correctly based on activity type
@@ -209,4 +214,5 @@ router.get('/usuarios', (req, res) => {
     }
 });
 
-module.exports = router;
+    return router;
+};

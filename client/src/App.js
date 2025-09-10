@@ -15,6 +15,7 @@ import StockConfiguration from './components/StockConfiguration';
 import Navigation from './components/Navigation';
 import ScrollToTop from './components/ScrollToTop';
 import AdminPanel from './components/AdminPanel';
+import DarkModeToggle from './components/DarkModeToggle';
 
 // Context
 import { SocketContext } from './context/SocketContext';
@@ -148,6 +149,7 @@ function App() {
               gap: 1,
               minWidth: 'fit-content'
             }}>
+              <DarkModeToggle />
               <Box
                 sx={{
                   width: 8,

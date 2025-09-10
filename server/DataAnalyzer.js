@@ -3,8 +3,9 @@ const path = require('path');
 const logger = require('./utils/logger');
 
 class DataAnalyzer {
-    constructor(dataPath) {
+    constructor(dataPath, dataManager = null) {
         this.dataPath = dataPath;
+        this.dataManager = dataManager;
         this.botDataFile = path.join(dataPath, 'bot_data.json');
         this.analyzedDataFile = path.join(dataPath, 'analyzed_data.json');
         this.saldoFazendaFile = path.join(dataPath, 'saldo_fazenda.json');
@@ -87,7 +88,7 @@ class DataAnalyzer {
 
         for (const message of messages) {
             console.log(`🔍 Processing message ID: ${message.id}, Author: ${message.author}`);
-            const activity = this.parseMessage(message);
+            const activity = await this.parseMessage(message);
             if (activity) {
                 processedCount++;
                 console.log(`✅ Parsed activity: ${activity.type} - ${activity.details?.item || 'financial'} x${activity.details?.quantity || activity.details?.amount}`);
@@ -117,7 +118,7 @@ class DataAnalyzer {
     /**
      * Parse individual message into activity
      */
-    parseMessage(message) {
+    async parseMessage(message) {
         try {
             const { content, author, gameTimestamp, raw_embeds } = message;
             
@@ -134,19 +135,27 @@ class DataAnalyzer {
                 if (title.includes('INSERIR ITEM')) {
                     activityType = 'item_add';
                     details = this.parseEmbedItemActivity(embed, 'add');
-                    realAuthor = this.extractAuthorFromEmbed(embed);
+                    const authorData = this.extractAuthorDataFromEmbed(embed);
+                    realAuthor = authorData.name;
+                    await this.ensureUserExists(authorData);
                 } else if (title.includes('REMOVER ITEM')) {
                     activityType = 'item_remove';
                     details = this.parseEmbedItemActivity(embed, 'remove');
-                    realAuthor = this.extractAuthorFromEmbed(embed);
+                    const authorData = this.extractAuthorDataFromEmbed(embed);
+                    realAuthor = authorData.name;
+                    await this.ensureUserExists(authorData);
                 } else if (title.includes('DEPÓSITO')) {
                     activityType = 'deposit';
                     details = this.parseEmbedFinancialActivity(embed, 'deposit');
-                    realAuthor = this.extractAuthorFromEmbed(embed);
+                    const authorData = this.extractAuthorDataFromEmbed(embed);
+                    realAuthor = authorData.name;
+                    await this.ensureUserExists(authorData);
                 } else if (title.includes('SAQUE')) {
                     activityType = 'withdrawal';
                     details = this.parseEmbedFinancialActivity(embed, 'withdrawal');
-                    realAuthor = this.extractAuthorFromEmbed(embed);
+                    const authorData = this.extractAuthorDataFromEmbed(embed);
+                    realAuthor = authorData.name;
+                    await this.ensureUserExists(authorData);
                 }
             }
             // Fallback to content parsing
@@ -353,6 +362,68 @@ class DataAnalyzer {
             }
         }
         return 'Captain Hook'; // fallback
+    }
+
+    /**
+     * Extract author name and FIXO ID from embed fields
+     */
+    extractAuthorDataFromEmbed(embed) {
+        if (embed.fields) {
+            for (const field of embed.fields) {
+                if (field.name.includes('Autor:')) {
+                    // Extract from prolog format: ```prolog\nZero Bala | FIXO: 74829\n```
+                    const match = field.value.match(/```prolog\n(.+?)\s+\|\s+FIXO:\s*(\d+)\n```/);
+                    if (match) {
+                        return {
+                            name: match[1],
+                            fixoId: match[2]
+                        };
+                    }
+                }
+            }
+        }
+        return {
+            name: 'Captain Hook',
+            fixoId: null
+        };
+    }
+
+    /**
+     * Ensure user exists in the system, create if not found
+     */
+    async ensureUserExists(authorData) {
+        if (!this.dataManager || !authorData.fixoId) {
+            return; // Can't create user without DataManager or FIXO ID
+        }
+
+        try {
+            // Check if user already exists by getting all users
+            const allUsers = this.dataManager.obterTodosUsuarios();
+            if (allUsers[authorData.fixoId]) {
+                // User exists, no need to create
+                return;
+            }
+
+            // User doesn't exist, create new worker
+            logger.info(`👤 Creating new worker: ${authorData.name} (FIXO: ${authorData.fixoId})`);
+            
+            const newUser = {
+                id: authorData.fixoId,
+                nome: authorData.name,
+                funcao: 'trabalhador', // Default to worker role
+                ativo: true,
+                data_criacao: new Date().toISOString(),
+                ultima_atividade: new Date().toISOString(),
+                fixo_id: authorData.fixoId
+            };
+
+            // Add user via DataManager
+            this.dataManager.adicionarUsuario(authorData.fixoId, newUser);
+            logger.info(`✅ Successfully created worker: ${authorData.name} (FIXO: ${authorData.fixoId})`);
+
+        } catch (error) {
+            logger.error('❌ Error ensuring user exists:', error.message);
+        }
     }
 
     /**

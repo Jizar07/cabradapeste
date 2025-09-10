@@ -5738,7 +5738,8 @@ class DataManager {
      * Calcular serviços de plantação (plantas retornadas pelo gerente)
      */
     calcularServicosPlantacao(managerId, timestampCorte) {
-        const atividadesPlantacao = this.discord.atividades_recentes.filter(atividade => {
+        const atividadesRecentes = this.discord?.atividades_recentes || this.atividades?.atividades_recentes || [];
+        const atividadesPlantacao = atividadesRecentes.filter(atividade => {
             if (timestampCorte && new Date(atividade.timestamp) <= new Date(timestampCorte)) {
                 return false;
             }
@@ -7648,19 +7649,20 @@ DataManager.prototype.logDiscordMessage = function(messageData) {
                     confidence: parsedActivity.confidence
                 });
                 
-                // Update farm balance if this is a high-confidence financial transaction
-                if (parsedActivity.confidence === 'high' && parsedActivity.valor) {
+                // Update farm balance if this is a high-confidence financial transaction with balance_after
+                if (parsedActivity.confidence === 'high' && parsedActivity.balance_after !== undefined) {
                     try {
                         let saldoData = this.carregarArquivoJson(this.saldoFazendaFile, { saldo_atual: 0 });
-                        if (parsedActivity.tipo === 'deposito') {
-                            saldoData.saldo_atual += parsedActivity.valor;
-                        } else if (parsedActivity.tipo === 'saque') {
-                            saldoData.saldo_atual -= parsedActivity.valor;
-                        } else if (parsedActivity.tipo === 'venda') {
-                            saldoData.saldo_atual += parsedActivity.valor;
-                        }
+                        // Use the "Saldo após depósito/saque" value directly instead of calculating
+                        saldoData.saldo_atual = parsedActivity.balance_after;
                         saldoData.ultima_atualizacao = new Date().toISOString();
+                        saldoData.ultima_transacao = {
+                            tipo: parsedActivity.tipo,
+                            valor: parsedActivity.valor,
+                            timestamp: new Date().toISOString()
+                        };
                         this.salvarArquivoJson(this.saldoFazendaFile, saldoData);
+                        logger.info(`💰 Updated bank balance to $${parsedActivity.balance_after} from ${parsedActivity.tipo}`);
                     } catch (balanceError) {
                         logger.warn('Failed to update balance from parsed activity:', balanceError.message);
                     }

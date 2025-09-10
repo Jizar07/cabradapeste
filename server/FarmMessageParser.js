@@ -22,6 +22,8 @@ class FarmMessageParser {
             ['wheat', 'Trigo'],
             ['corn', 'Milho'],
             ['seed', 'Semente'],
+            ['bulrush', 'Junco'],
+            ['bulrush_seed', 'Semente de Junco'],
             // Materials
             ['wood', 'Madeira'],
             ['iron', 'Ferro'],
@@ -170,37 +172,101 @@ class FarmMessageParser {
      * Parse financial messages (CAIXA ORGANIZAÇÃO)
      */
     parseFinancialMessage(content, base) {
-        if (!content.includes('CAIXA ORGANIZAÇÃO') && !content.includes('DEPÓSITO') && !content.includes('SAQUE')) {
+        // Check for financial keywords in content OR embeds
+        const isFinancialMessage = content.includes('CAIXA ORGANIZAÇÃO') || 
+                                  content.includes('DEPÓSITO') || 
+                                  content.includes('SAQUE') ||
+                                  (base.embeds && base.embeds.some(e => 
+                                      e.title && (e.title.includes('DEPÓSITO') || e.title.includes('SAQUE'))
+                                  ));
+        
+        if (!isFinancialMessage) {
             return base;
         }
 
-        const valueDepositMatch = content.match(/Valor depositado:\s*\$?([\d,\.]+)/i);
-        const valueSaqueMatch = content.match(/Valor sacado:\s*\$?([\d,\.]+)/i);
-        const actionMatch = content.match(/Ação:\s*([^,\n]+?)(?=Saldo|Data|$)/i);
-        
-        if (valueDepositMatch) {
-            return {
-                ...base,
-                tipo: 'deposito',
-                categoria: 'financeiro',
-                valor: parseFloat(valueDepositMatch[1].replace(',', '.')),
-                descricao: actionMatch ? actionMatch[1].trim() : 'Depósito',
-                parseSuccess: true,
-                confidence: 'high',
-                displayText: `${base.autor} depositou $${valueDepositMatch[1]}${actionMatch ? ' - ' + actionMatch[1] : ''}`
-            };
+        let valorTransacao = null;
+        let balanceAfter = null;
+        let actionDescription = null;
+        let tipo = null;
+
+        // First, try to extract from Discord embed fields (most common for bot messages)
+        if (base.embeds && base.embeds.length > 0) {
+            const embed = base.embeds[0];
+            
+            if (embed.fields) {
+                for (const field of embed.fields) {
+                    const fieldName = field.name.toLowerCase();
+                    const fieldValue = field.value.replace(/```prolog\n|```/g, '').trim();
+                    
+                    // Extract transaction amount
+                    if (fieldName.includes('valor depositado')) {
+                        const match = fieldValue.match(/\$?([0-9.,]+)/);
+                        if (match) {
+                            valorTransacao = parseFloat(match[1].replace(',', '.'));
+                            tipo = 'deposito';
+                        }
+                    } else if (fieldName.includes('valor sacado')) {
+                        const match = fieldValue.match(/\$?([0-9.,]+)/);
+                        if (match) {
+                            valorTransacao = parseFloat(match[1].replace(',', '.'));
+                            tipo = 'saque';
+                        }
+                    }
+                    
+                    // Extract balance after transaction 
+                    else if (fieldName.includes('saldo após')) {
+                        const match = fieldValue.match(/\$?([0-9.,]+)/);
+                        if (match) {
+                            balanceAfter = parseFloat(match[1].replace(',', '.'));
+                        }
+                    }
+                    
+                    // Extract action description
+                    else if (fieldName.includes('ação')) {
+                        actionDescription = fieldValue.trim();
+                    }
+                }
+            }
         }
 
-        if (valueSaqueMatch) {
+        // Fallback to content parsing if embed parsing failed
+        if (!valorTransacao) {
+            const valueDepositMatch = content.match(/Valor depositado:\s*\$?([\d,\.]+)/i);
+            const valueSaqueMatch = content.match(/Valor sacado:\s*\$?([\d,\.]+)/i);
+            const actionMatch = content.match(/Ação:\s*([^,\n]+?)(?=Saldo|Data|$)/i);
+            
+            if (valueDepositMatch) {
+                valorTransacao = parseFloat(valueDepositMatch[1].replace(',', '.'));
+                tipo = 'deposito';
+            } else if (valueSaqueMatch) {
+                valorTransacao = parseFloat(valueSaqueMatch[1].replace(',', '.'));
+                tipo = 'saque';
+            }
+            
+            if (actionMatch) {
+                actionDescription = actionMatch[1].trim();
+            }
+            
+            // Extract "Saldo após depósito" or "Saldo após saque" from content
+            if (!balanceAfter) {
+                const balanceAfterMatch = content.match(/Saldo após (?:depósito|saque):\s*\$?([\d,\.]+)/i);
+                if (balanceAfterMatch) {
+                    balanceAfter = parseFloat(balanceAfterMatch[1].replace(',', '.'));
+                }
+            }
+        }
+        
+        if (valorTransacao && tipo) {
             return {
                 ...base,
-                tipo: 'saque',
+                tipo: tipo,
                 categoria: 'financeiro',
-                valor: parseFloat(valueSaqueMatch[1].replace(',', '.')),
-                descricao: actionMatch ? actionMatch[1].trim() : 'Saque',
+                valor: valorTransacao,
+                balance_after: balanceAfter,
+                descricao: actionDescription || (tipo === 'deposito' ? 'Depósito' : 'Saque'),
                 parseSuccess: true,
                 confidence: 'high',
-                displayText: `${base.autor} sacou $${valueSaqueMatch[1]}${actionMatch ? ' - ' + actionMatch[1] : ''}`
+                displayText: `${base.autor} ${tipo === 'deposito' ? 'depositou' : 'sacou'} $${valorTransacao}${actionDescription ? ' - ' + actionDescription : ''}`
             };
         }
 
