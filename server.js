@@ -35,7 +35,7 @@ class WebServer {
         
 
         // API routes - properly pass dataManager to routes that need it
-        this.app.use('/api/dashboard', require('./server/routes/dashboard'));
+        this.app.use('/api/dashboard', require('./server/routes/dashboard')(this.dataManager));
         this.app.use('/api/inventario', require('./server/routes/inventory')(this.dataManager));
         this.app.use('/api/inventory', require('./server/routes/inventory')(this.dataManager));
         this.app.use('/api/usuarios', require('./server/routes/users')(this.dataManager));

@@ -39,7 +39,8 @@
       "Read(//c/Users/jizar/OneDrive/Documents/Fazenda/server/**)",
       "Bash(pm2 delete:*)",
       "Bash(del:*)",
-      "Bash(npm run build:*)"
+      "Bash(npm run build:*)",
+      "Bash(git add:*)"
     ],
     "deny": [],
     "ask": []
